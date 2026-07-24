@@ -1235,9 +1235,15 @@ function renderOver(){
     '到達ウェーブ '+G.wave+(G.bossKills>0?'　ヌシ様討伐 '+G.bossKills+' 回':''),
   ];
   lines.forEach((t,i)=>ctx.fillText(t,W/2,350+i*30));
-  const blink=(clock()/500|0)%2===0;
-  ctx.fillStyle=blink?'#ffe27a':'#667'; ctx.font='bold 22px "Segoe UI"';
-  ctx.fillText('タップ / スペース でもう一度', W/2, 580);
+  const lockLeft=Math.max(0, overLockT-clock());
+  if (lockLeft>0){   // ロック中は残り秒数を表示（誤タップで即再開しない）
+    ctx.fillStyle='#9ab'; ctx.font='bold 20px "Segoe UI"';
+    ctx.fillText('結果発表中… あと'+Math.ceil(lockLeft/1000)+'秒', W/2, 580);
+  } else {
+    const blink=(clock()/500|0)%2===0;
+    ctx.fillStyle=blink?'#ffe27a':'#667'; ctx.font='bold 22px "Segoe UI"';
+    ctx.fillText('タップ / スペース でもう一度', W/2, 580);
+  }
 }
 
 function overlay(title,col,sub){ ctx.fillStyle='rgba(0,0,0,0.68)'; ctx.fillRect(0,0,W,H); ctx.textAlign='center';
@@ -1247,8 +1253,10 @@ function overlay(title,col,sub){ ctx.fillStyle='rgba(0,0,0,0.68)'; ctx.fillRect(
 // ---- 入力 -------------------------------------------------------------------
 function onKey(code){
   if (code==='KeyM'){ SFX.toggle(); Music.syncMute(); return; }
-  if (code==='KeyR'){ startGame(); return; }
-  if (state==='title' || state==='over'){ if (code==='Space'||code==='Enter') startGame(); return; }
+  if (code==='KeyR'){ if (state==='over' && clock()<overLockT) return; startGame(); return; }
+  if (state==='title' || state==='over'){
+    if (state==='over' && clock()<overLockT) return;   // 3秒間はスペース連打も無効
+    if (code==='Space'||code==='Enter') startGame(); return; }
   if (code==='KeyP'){ state = state==='play'?'pause':'play';
     if(state==='pause') Music.pause(); else Music.resume(); return; }
   if (state!=='play') return;
@@ -1259,7 +1267,9 @@ function onKeyUp(code){
   if (G && G.holdNote && G.holdNote.via===code) releaseHold();
 }
 function onTap(x,y,pid){
-  if (state==='title'||state==='over'){ startGame(); return; }
+  if (state==='title'||state==='over'){
+    if (state==='over' && clock()<overLockT) return;   // 3秒間は連打を無効化して結果を見せる
+    startGame(); return; }
   if (state==='pause'){ state='play'; Music.resume(); return; }
   if (state!=='play') return;
   const dx=x-428, dy=y-(PANEL+60);
@@ -1270,7 +1280,9 @@ function onPtrUp(pid){
   if (G && G.holdNote && G.holdNote.via==='p'+pid) releaseHold();
 }
 
-function lose(){ state='over'; Music.stop(); SFX.lose(); FX.shake(12);
+// ゲームオーバー直後の誤タップ防止：連打中でも結果画面を必ず3秒見せる
+let overLockT=0;
+function lose(){ state='over'; overLockT=clock()+3000; Music.stop(); SFX.lose(); FX.shake(12);
   if (G.score>Store.get()) Store.set(G.score); }
 function startGame(){ Music.stop(); newGame(); FX.clear(); state='play'; }
 
