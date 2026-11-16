@@ -1191,36 +1191,149 @@ function drawHUD(){
   if (ready){ ctx.fillStyle='#fff'; ctx.font='bold 12px "Segoe UI"'; ctx.fillText('タップ! (Q)',bx,by-50); }
 }
 
+// ── v10：タイトル画面を作り直し（大きなロゴ・提灯・大うちわ・あそびかたは別の面）──
+const TITLE_FONT='"Yu Gothic UI","Hiragino Sans","Meiryo","Segoe UI",sans-serif';
+// 元の説明の文（そのまま「あそびかた」の面に出す）
+const TITLE_INFO = [
+  '虫たちが音楽に乗ってやってくる！',
+  '金のラインに ぴったり重なった瞬間 にタップ！',
+  'レーンをタップ ＝ うちわで仰ぐ（D F Space J K / 1〜5）',
+  'カブト大将は 2連打 ・ ニョロ姫は 長押し',
+  'カマキリ姐さん＆ダンゴ郎は 1撃目→下の トドメ線 で2撃目！',
+  'セミ兄貴・テントウ姫も参戦 ・ ウェーブ毎にテンポUP♪',
+  'うちわ進化で ❤回復（満タンなら祝福＝判定拡大！）',
+  'ゲージ満タンで 必殺・かまいたち（Q / ⚡）',
+  '4ウェーブごとに ヌシ様 が現れる…',
+];
+const TITLE_HELP_BTN={x:110,y:552,w:260,h:46};   // 「あそびかた」ボタンの場所（タップの当たりにも使う）
+let titleHelp=false;                              // あそびかたの面を開いているか
+// ロゴの字：1文字ずつ飛びこんで、そのあと波うつ（濃いふち＋白い線＋たてのグラデーション＋光）
+function titleLogo(text,cx,y,size,t,delay){
+  ctx.save(); ctx.textAlign='center'; ctx.textBaseline='alphabetic'; ctx.lineJoin='round';
+  ctx.font='900 '+size+'px '+TITLE_FONT;
+  const chars=[...text]; let ws=chars.map(ch=>ctx.measureText(ch).width), total=ws.reduce((p,q)=>p+q,0);
+  const maxW=W-36;                                                    // 画面の幅からはみ出さない
+  if(total>maxW){ size=Math.floor(size*maxW/total); ctx.font='900 '+size+'px '+TITLE_FONT;
+    ws=chars.map(ch=>ctx.measureText(ch).width); total=ws.reduce((p,q)=>p+q,0); }
+  let x=cx-total/2;
+  chars.forEach((ch,i)=>{
+    const e=clamp((t-delay-i*0.07)/0.45,0,1);
+    const back=1+2.70158*Math.pow(e-1,3)+1.70158*Math.pow(e-1,2);
+    const bob=Math.sin(t*2.2-i*0.55)*3*e;
+    ctx.save(); ctx.translate(x+ws[i]/2, y+bob-(1-e)*40); ctx.scale(back,back); ctx.globalAlpha=e;
+    ctx.shadowColor='rgba(255,110,50,0.95)'; ctx.shadowBlur=26;
+    ctx.strokeStyle='#1a1038'; ctx.lineWidth=Math.max(7,size*0.2); ctx.strokeText(ch,0,0);
+    ctx.shadowBlur=0;
+    ctx.strokeStyle='#ffffff'; ctx.lineWidth=Math.max(3,size*0.07); ctx.strokeText(ch,0,0);
+    const g=ctx.createLinearGradient(0,-size*0.9,0,size*0.12);
+    g.addColorStop(0,'#fffbe0'); g.addColorStop(0.45,'#ffd94a'); g.addColorStop(1,'#ff6a3c');
+    ctx.fillStyle=g; ctx.fillText(ch,0,0);
+    ctx.restore(); x+=ws[i]; });
+  ctx.restore();
+}
+// 祭りの提灯（上にならべて、ゆらゆら）
+function titleLanterns(t){
+  ctx.save();
+  ctx.strokeStyle='rgba(255,220,160,0.55)'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(-10,14); ctx.quadraticCurveTo(W/2,58,W+10,14); ctx.stroke();
+  for(let i=0;i<7;i++){
+    const u=(i+0.5)/7, x=u*W, y=14+2*u*(1-u)*44+16, sw=Math.sin(t*1.6+i*0.9)*0.10;
+    const glow=0.75+0.25*Math.sin(t*3+i*1.7);
+    ctx.save(); ctx.translate(x,y-16); ctx.rotate(sw); ctx.translate(0,16);
+    ctx.shadowColor='rgba(255,120,60,'+glow.toFixed(2)+')'; ctx.shadowBlur=18;
+    ctx.fillStyle=i%2?'#ff5a3c':'#ffb03a'; ctx.beginPath(); ctx.ellipse(0,0,11,14,0,0,6.2832); ctx.fill();
+    ctx.shadowBlur=0;
+    ctx.fillStyle='rgba(255,245,200,0.55)'; ctx.beginPath(); ctx.ellipse(0,0,5,10,0,0,6.2832); ctx.fill();
+    ctx.fillStyle='#2a1a1a'; ctx.fillRect(-6,-16,12,3.5); ctx.fillRect(-6,12.5,12,3.5);
+    ctx.restore();
+  }
+  ctx.restore();
+}
 function renderTitle(){
-  ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(0,0,W,H);
-  ctx.textAlign='center';
-  ctx.fillStyle='#ffe27a'; ctx.font='bold 40px "Segoe UI"';
-  ctx.fillText('仰げ！うちわ番長', W/2, 110);
-  ctx.fillStyle='#8ef0ff'; ctx.font='bold 20px "Segoe UI"';
-  ctx.fillText('〜 リズム退治 〜', W/2, 145);
-  // キャラ見本
+  if (titleHelp){ renderTitleHelp(); return; }
+  const cx=W/2, t=clock()/1000;
+  // 下地：夏祭りの夜（上は紺、下は暗く）
+  { const g=ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,'rgba(14,8,44,0.80)'); g.addColorStop(0.45,'rgba(40,12,52,0.58)'); g.addColorStop(1,'rgba(4,4,16,0.86)');
+    ctx.fillStyle=g; ctx.fillRect(0,0,W,H); }
+  titleLanterns(t);
+  // 英字の小見出し
+  ctx.save(); ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+  ctx.font='bold 12px "Segoe UI",sans-serif'; ctx.fillStyle='rgba(255,214,150,0.90)';
+  { const s='UCHIWA BANCHO', step=13; [...s].forEach((ch,i)=>ctx.fillText(ch, cx-(s.length-1)*step/2+i*step, 100)); }
+  ctx.strokeStyle='rgba(255,214,150,0.45)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(cx-190,96); ctx.lineTo(cx-98,96); ctx.moveTo(cx+98,96); ctx.lineTo(cx+190,96); ctx.stroke();
+  ctx.restore();
+  // 大うちわ（ロゴのうしろで仰ぐ・ゲームの「神風うちわ」の絵をそのまま使う）
+  ctx.save(); ctx.translate(382,196); ctx.rotate(0.28+Math.sin(t*3.4)*0.22); ctx.scale(2.2,2.2);
+  ctx.globalAlpha=0.95; drawFanShape(FANS.length); ctx.restore();
+  // ロゴ（2段）
+  titleLogo('仰げ！', cx-96, 158, 42, t, 0.10);
+  titleLogo('うちわ番長', cx, 236, 78, t, 0.30);
+  // 副題の札
+  { const w=210,h=32,x=cx-w/2,y=254;
+    ctx.save(); rrect(x,y,w,h,16); ctx.fillStyle='rgba(20,12,48,0.82)'; ctx.fill();
+    ctx.strokeStyle='rgba(142,240,255,0.70)'; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.textAlign='center'; ctx.fillStyle='#8ef0ff'; ctx.font='900 18px '+TITLE_FONT;
+    ctx.fillText('〜 リズム退治 〜', cx, y+23); ctx.restore(); }
+  // キャラ見本（曲の拍に合わせてはずむ）
   const cast=[['mosq',-180],['bee',-108],['roach',-36],['beetle',36],['snake',108],['spider',180]];
-  cast.forEach(cv=>{ ctx.save(); ctx.translate(W/2+cv[1],230); ctx.scale(0.9,0.9);
+  cast.forEach((cv,i)=>{ const hop=Math.abs(Math.sin(t*1000/BEAT*Math.PI/2-i*0.5))*10;
+    ctx.save(); ctx.translate(cx+cv[1],352-hop); ctx.scale(0.9,0.9);
     if(cv[0]==='snake') DRAW.snakeHead(0,{mood:0}); else DRAW[cv[0]](0,{mood:0}); ctx.restore(); });
-  const info = [
-    '虫たちが音楽に乗ってやってくる！',
-    '金のラインに ぴったり重なった瞬間 にタップ！',
-    '',
-    'レーンをタップ ＝ うちわで仰ぐ（D F Space J K / 1〜5）',
-    'カブト大将は 2連打 ・ ニョロ姫は 長押し',
-    'カマキリ姐さん＆ダンゴ郎は 1撃目→下の トドメ線 で2撃目！',
-    'セミ兄貴・テントウ姫も参戦 ・ ウェーブ毎にテンポUP♪',
-    'うちわ進化で ❤回復（満タンなら祝福＝判定拡大！）',
-    'ゲージ満タンで 必殺・かまいたち（Q / ⚡）',
-    '4ウェーブごとに ヌシ様 が現れる…',
-  ];
-  ctx.font='14px "Segoe UI"'; ctx.fillStyle='#dce4ff';
-  info.forEach((t,i)=>ctx.fillText(t,W/2,320+i*25));
-  const blink=(clock()/500|0)%2===0;
-  ctx.fillStyle=blink?'#ffe27a':'#667'; ctx.font='bold 23px "Segoe UI"';
-  ctx.fillText('タップ / スペース でスタート', W/2, 640);
-  ctx.fillStyle='#8aa'; ctx.font='12px "Segoe UI"';
-  ctx.fillText('BEST '+Store.get(), W/2, 672);
+  // ひとこと＋要点（小さく2行）
+  ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+  ctx.font='bold 16px '+TITLE_FONT; ctx.fillStyle='rgba(255,240,210,0.96)';
+  ctx.fillText(TITLE_INFO[0], cx, 404);
+  ctx.font='13px '+TITLE_FONT; ctx.fillStyle='rgba(200,208,240,0.82)';
+  ctx.fillText(TITLE_INFO[1], cx, 428, W-30);
+  ctx.fillText(TITLE_INFO[2], cx, 447, W-30);
+  // スタートの合図（大きなカード・ふわっと光る）
+  { const p=0.5+0.5*Math.sin(t*3.2), w=404, h=62, x=cx-w/2, y=470;
+    ctx.save(); ctx.shadowColor='rgba(255,170,70,'+(0.55+0.4*p).toFixed(2)+')'; ctx.shadowBlur=12+14*p;
+    const g=ctx.createLinearGradient(x,y,x+w,y+h); g.addColorStop(0,'#ff5a3c'); g.addColorStop(1,'#ffb03a');
+    rrect(x,y,w,h,20); ctx.fillStyle=g; ctx.fill(); ctx.shadowBlur=0;
+    const hl=ctx.createLinearGradient(0,y,0,y+h); hl.addColorStop(0,'rgba(255,255,255,0.40)'); hl.addColorStop(0.5,'rgba(255,255,255,0)');
+    rrect(x,y,w,h,20); ctx.fillStyle=hl; ctx.fill();
+    ctx.strokeStyle='#fff'; ctx.lineWidth=2.5; rrect(x,y,w,h,20); ctx.stroke();
+    ctx.textAlign='center'; ctx.font='900 23px '+TITLE_FONT; ctx.lineJoin='round';
+    ctx.strokeStyle='rgba(90,20,10,0.6)'; ctx.lineWidth=4; ctx.strokeText('▶  タップ ／ スペース でスタート', cx, y+40, w-24);
+    ctx.fillStyle='#fff'; ctx.fillText('▶  タップ ／ スペース でスタート', cx, y+40, w-24); ctx.restore(); }
+  // あそびかたのボタン
+  { const b=TITLE_HELP_BTN;
+    ctx.save(); rrect(b.x,b.y,b.w,b.h,18); ctx.fillStyle='rgba(18,22,60,0.86)'; ctx.fill();
+    ctx.strokeStyle='rgba(142,240,255,0.75)'; ctx.lineWidth=2; ctx.stroke();
+    ctx.textAlign='center'; ctx.fillStyle='#dff6ff'; ctx.font='900 18px '+TITLE_FONT;
+    ctx.fillText('？ あそびかた（H）', b.x+b.w/2, b.y+30); ctx.restore(); }
+  // 記録のふだ
+  { const s='BEST '+Store.get(); ctx.save(); ctx.font='bold 14px '+TITLE_FONT;
+    const w=ctx.measureText(s).width+30, x=cx-w/2, y=616;
+    rrect(x,y,w,28,14); ctx.fillStyle='rgba(10,10,36,0.78)'; ctx.fill();
+    ctx.strokeStyle='rgba(255,226,122,0.60)'; ctx.lineWidth=1; ctx.stroke();
+    ctx.fillStyle='#ffe27a'; ctx.textAlign='center'; ctx.fillText(s, cx, y+19); ctx.restore(); }
+  // キーの案内（小さく1行）
+  ctx.textAlign='center'; ctx.font='12px '+TITLE_FONT; ctx.fillStyle='rgba(160,172,215,0.88)';
+  ctx.fillText('M 音　　P ポーズ　　R やり直し', cx, 676);
+}
+// v10：あそびかたの面（タイトルにあった説明の文を、意味を変えずにここへ移した）
+function renderTitleHelp(){
+  const cx=W/2;
+  ctx.fillStyle='rgba(8,6,28,0.90)'; ctx.fillRect(0,0,W,H);
+  ctx.save();
+  rrect(12,70,W-24,580,20); ctx.fillStyle='rgba(30,18,62,0.92)'; ctx.fill();
+  ctx.strokeStyle='rgba(255,214,120,0.75)'; ctx.lineWidth=2; ctx.stroke();
+  ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+  ctx.fillStyle='#ffe27a'; ctx.font='900 30px '+TITLE_FONT; ctx.fillText('あそびかた', cx, 124);
+  ctx.strokeStyle='rgba(255,214,120,0.45)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(60,142); ctx.lineTo(W-60,142); ctx.stroke();
+  TITLE_INFO.forEach((s,i)=>{
+    ctx.font=(i<2?'bold 16px ':'15px ')+TITLE_FONT; ctx.fillStyle=i<2?'#fff3c4':'#dce4ff';
+    ctx.fillText(s, cx, 186+i*42, W-48); });
+  { const w=260,h=46,x=cx-w/2,y=578;
+    rrect(x,y,w,h,18); ctx.fillStyle='rgba(18,22,60,0.9)'; ctx.fill();
+    ctx.strokeStyle='rgba(142,240,255,0.75)'; ctx.lineWidth=2; ctx.stroke();
+    ctx.fillStyle='#dff6ff'; ctx.font='900 18px '+TITLE_FONT; ctx.fillText('とじる（タップ ／ H）', cx, y+30); }
+  ctx.restore();
 }
 
 function titleFor(sc){
@@ -1268,6 +1381,9 @@ function overlay(title,col,sub){ ctx.fillStyle='rgba(0,0,0,0.68)'; ctx.fillRect(
 function onKey(code){
   if (code==='KeyM'){ SFX.toggle(); Music.syncMute(); return; }
   if (code==='KeyR'){ if (state==='over' && clock()<overLockT) return; startGame(); return; }
+  // v10：タイトル画面を作り直し＝H であそびかたを開く／閉じる（開いている間は Space・Enter・Esc で閉じるだけ）
+  if (state==='title' && code==='KeyH'){ titleHelp=!titleHelp; return; }
+  if (state==='title' && titleHelp){ if (code==='Space'||code==='Enter'||code==='Escape') titleHelp=false; return; }
   if (state==='title' || state==='over'){
     if (state==='over' && clock()<overLockT) return;   // 3秒間はスペース連打も無効
     if (code==='Space'||code==='Enter') startGame(); return; }
@@ -1281,6 +1397,11 @@ function onKeyUp(code){
   if (G && G.holdNote && G.holdNote.via===code) releaseHold();
 }
 function onTap(x,y,pid){
+  if (state==='title'){   // v10：タイトル画面を作り直し＝あそびかたのボタンと、その面を閉じるタップ
+    if (titleHelp){ titleHelp=false; return; }
+    const b=TITLE_HELP_BTN;
+    if (x>=b.x && x<=b.x+b.w && y>=b.y && y<=b.y+b.h){ titleHelp=true; return; }
+  }
   if (state==='title'||state==='over'){
     if (state==='over' && clock()<overLockT) return;   // 3秒間は連打を無効化して結果を見せる
     startGame(); return; }
@@ -1298,7 +1419,7 @@ function onPtrUp(pid){
 let overLockT=0;
 function lose(){ state='over'; overLockT=clock()+3000; Music.stop(); SFX.lose(); FX.shake(12);
   if (G.score>Store.get()) Store.set(G.score); }
-function startGame(){ Music.stop(); newGame(); FX.clear(); state='play'; }
+function startGame(){ titleHelp=false; Music.stop(); newGame(); FX.clear(); state='play'; }
 
 state='title';
 requestAnimationFrame(loop);
